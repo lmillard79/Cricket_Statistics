@@ -11,8 +11,16 @@ The practical purpose is threefold. First, it tests whether 148 years of Test cr
 ## 2.1 Data source
 Individual innings scores for all Test matches at each ground were extracted from ESPNcricinfo Statsguru via web scraping. The query returns every individual innings in chronological order, allowing annual maxima to be computed from the full historical record.
 ## 2.2 Grounds selected
-GroundCountryFirst TestRecord startMCGAustralia18771877GabbaAustralia19311931Lord'sEngland18841884HeadingleyEngland18991899Eden GardensIndia19341934 — pending
-Eden Gardens data has been extracted but not yet processed through RMC-BestFit. This remains a priority task.
+    "MCG":              61,   # AUS: Melbourne Cricket Ground (First Test 1877)
+    "Gabba":           209,   # AUS: Brisbane Cricket Ground, Woolloongabba
+    "SCG":             132,   # AUS: Sydney Cricket Ground (First Test 1882)
+    "Lord's":           10,   # ENG: Lord's, London (First Test 1884)
+    "Headingley":      179,   # ENG: Headingley, Leeds (First Test 1899)
+    "Old Trafford":     75,   # ENG: Old Trafford, Manchester (First Test 1884)
+    "Newlands":        174,   # SA: Newlands, Cape Town (First Test 1889)
+    "St George's Park": 173,  # SA: St George's Park, Gqeberha (First Test 1889)
+    "Eden Gardens":    292,   # IND: Eden Gardens, Kolkata (First Test 1934)
+
 ## 2.3 AMS construction
 For each ground, the highest individual innings score in each calendar year was extracted. Years with no Test at that ground were excluded rather than interpolated. The resulting AMS is unequally spaced in time, which is a known limitation discussed further in Section 5.
 ## 2.4 GEV fitting
