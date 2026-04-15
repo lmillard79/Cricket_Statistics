@@ -1,6 +1,4 @@
 Cricket grounds as hydrological gauges: preliminary findings and way forward
-Author: Lindsay Roberts, Principal Water Engineer
-Date: April 2026
 Status: Working draft — not for distribution
 Purpose: Weekend review and planning note
 
