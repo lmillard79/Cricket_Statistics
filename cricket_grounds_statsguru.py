@@ -90,19 +90,27 @@ Y_MAX: float = 500.0
 # Probe script: scripts/find_ground_ids.py
 # robots.txt check: /ci/engine/stats/ is NOT disallowed for User-agent: *
 GROUND_IDS: dict[str, int] = {
-    "MCG":          61,    # AUS: Melbourne Cricket Ground (First Test 1877)
-    "Gabba":       209,    # AUS: Brisbane Cricket Ground, Woolloongabba
-    "Lord's":       10,    # ENG: Lord's, London  (ID verified via probe April 2026)
-    "Headingley":  179,    # ENG: Headingley, Leeds
-    "Eden Gardens": 292,   # IND: Eden Gardens, Kolkata
+    "MCG":              61,   # AUS: Melbourne Cricket Ground (First Test 1877)
+    "Gabba":           209,   # AUS: Brisbane Cricket Ground, Woolloongabba
+    "SCG":             132,   # AUS: Sydney Cricket Ground (First Test 1882)
+    "Lord's":           10,   # ENG: Lord's, London (First Test 1884)
+    "Headingley":      179,   # ENG: Headingley, Leeds (First Test 1899)
+    "Old Trafford":     75,   # ENG: Old Trafford, Manchester (First Test 1884)
+    "Newlands":        174,   # SA: Newlands, Cape Town (First Test 1889)
+    "St George's Park": 173,  # SA: St George's Park, Gqeberha (First Test 1889)
+    "Eden Gardens":    292,   # IND: Eden Gardens, Kolkata (First Test 1934)
 }
 
 GROUND_SUBTITLES: dict[str, str] = {
-    "MCG":           "Melbourne  |  First Test 1877",
-    "Gabba":         "Brisbane   |  First Test 1931",
-    "Lord's":        "London     |  First Test 1884",
-    "Headingley":    "Leeds      |  First Test 1899",
-    "Eden Gardens":  "Kolkata    |  First Test 1934",
+    "MCG":              "Melbourne       |  First Test 1877",
+    "Gabba":            "Brisbane        |  First Test 1931",
+    "SCG":              "Sydney          |  First Test 1882",
+    "Lord's":           "London          |  First Test 1884",
+    "Headingley":       "Leeds           |  First Test 1899",
+    "Old Trafford":     "Manchester      |  First Test 1884",
+    "Newlands":         "Cape Town       |  First Test 1889",
+    "St George's Park": "Port Elizabeth  |  First Test 1889",
+    "Eden Gardens":     "Kolkata         |  First Test 1934",
 }
 
 # ---------------------------------------------------------------------------
@@ -235,7 +243,7 @@ def scrape_ground(ground_name: str, ground_id: int) -> list[dict]:
 
 
 def scrape_all_grounds() -> pd.DataFrame:
-    """Scrape all five grounds and return combined DataFrame."""
+    """Scrape all nine grounds and return combined DataFrame."""
     all_records: list[dict] = []
     for name, gid in GROUND_IDS.items():
         log.info("Scraping %s (ground_id=%d) ...", name, gid)
@@ -251,13 +259,42 @@ def scrape_all_grounds() -> pd.DataFrame:
 
 
 def load_innings() -> pd.DataFrame:
-    """Load from cache if available, otherwise scrape."""
-    if CSV_CACHE.exists() and not FORCE_RESCRAPE:
-        log.info("Loading cached innings from %s", CSV_CACHE)
-        df = pd.read_csv(CSV_CACHE, usecols=["ground", "year", "score"])
-        log.info("  %d rows loaded", len(df))
-        return df
-    return scrape_all_grounds()
+    """
+    Load innings from cache. If cache exists, only scrape grounds that are
+    missing from it (incremental update). Set FORCE_RESCRAPE=True to
+    re-scrape everything from scratch.
+    """
+    if FORCE_RESCRAPE or not CSV_CACHE.exists():
+        return scrape_all_grounds()
+
+    log.info("Loading cached innings from %s", CSV_CACHE)
+    existing = pd.read_csv(CSV_CACHE, usecols=["ground", "year", "score"])
+    cached_grounds = set(existing["ground"].unique())
+    missing = [name for name in GROUND_IDS if name not in cached_grounds]
+
+    if not missing:
+        log.info("  All %d grounds cached (%d rows total)", len(GROUND_IDS), len(existing))
+        return existing
+
+    log.info("  Cached: %s", sorted(cached_grounds))
+    log.info("  Missing (will scrape): %s", missing)
+    new_records: list[dict] = []
+    for name in missing:
+        gid = GROUND_IDS[name]
+        log.info("Scraping %s (ground_id=%d) ...", name, gid)
+        recs = scrape_ground(name, gid)
+        new_records.extend(recs)
+        log.info("  %s: %d innings scraped", name, len(recs))
+        time.sleep(PAUSE_BETWEEN_GROUNDS)
+
+    if new_records:
+        new_df = pd.DataFrame(new_records)
+        combined = pd.concat([existing, new_df], ignore_index=True)
+        combined.to_csv(CSV_CACHE, index=False)
+        log.info("Updated cache -> %s  (%d rows total)", CSV_CACHE, len(combined))
+        return combined
+
+    return existing
 
 
 # ---------------------------------------------------------------------------
@@ -523,27 +560,36 @@ def _method_panel(ax: plt.Axes) -> None:
 
 
 def plot_grounds(ams_df: pd.DataFrame, output_path: Path) -> None:
-    """5-panel GEV plot, one per ground + method note."""
+    """9-panel GEV plot (3x4 grid), one per ground + method note panel."""
     setup_style()
-    fig = plt.figure(figsize=(20, 13))
-    gs = GridSpec(2, 3, figure=fig, hspace=0.42, wspace=0.28)
+    n_grounds = len(GROUND_IDS)
+    # 3 columns; enough rows to hold all grounds + 1 method note
+    n_cols = 3
+    n_rows = (n_grounds + 1 + n_cols - 1) // n_cols  # ceil division
+    fig = plt.figure(figsize=(22, n_rows * 6.5))
+    gs = GridSpec(n_rows, n_cols, figure=fig, hspace=0.45, wspace=0.30)
 
-    panel_positions = [gs[0, 0], gs[0, 1], gs[0, 2], gs[1, 0], gs[1, 1]]
-    axes = [fig.add_subplot(pos) for pos in panel_positions]
+    # Build list of all subplot positions row-major
+    all_positions = [gs[r, c] for r in range(n_rows) for c in range(n_cols)]
+    data_axes = [fig.add_subplot(pos) for pos in all_positions[:n_grounds]]
+    method_ax = fig.add_subplot(all_positions[n_grounds])
+
+    # Hide any remaining empty cells
+    for pos in all_positions[n_grounds + 1:]:
+        fig.add_subplot(pos).axis("off")
 
     log.info("Plotting GEV panels ...")
-    for ax, ground in zip(axes, GROUND_IDS.keys()):
+    for ax, ground in zip(data_axes, GROUND_IDS.keys()):
         _plot_panel(ax, ground, ams_df)
 
-    ax6 = fig.add_subplot(gs[1, 2])
-    _method_panel(ax6)
+    _method_panel(method_ax)
 
     fig.suptitle(
         "Cricket Grounds as Hydrological Gauge Stations\n"
-        "GEV Flood Frequency Analysis  |  Annual Maxima Series  |  Five Test Venues  |  1877-2025",
-        fontsize=13, fontweight="bold", color=C_FULL, y=0.995,
+        "GEV Flood Frequency Analysis  |  Annual Maxima Series  |  Nine Test Venues  |  1877-2025",
+        fontsize=14, fontweight="bold", color=C_FULL, y=0.998,
     )
-    fig.text(0.5, -0.005, FOOTER, ha="center", fontsize=7.5,
+    fig.text(0.5, -0.003, FOOTER, ha="center", fontsize=7.5,
              color=C_TEXT, style="italic")
 
     plt.tight_layout()
